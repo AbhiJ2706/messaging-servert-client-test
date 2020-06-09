@@ -1,0 +1,288 @@
+<html>
+<body>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+<div style="width:50%; float:left">
+	<div class="body" id="top">
+		<h1>Welcome to my messaging app!</h1>
+		<p>Enter your name.</p>
+		<form id="nameFormContainer">
+			<input type="text" id="nameForm"></input>
+		</form>
+		<button onclick="submitName()">Submit</button>
+		<p id="id"></p>
+		<p id="others"></p>
+		<button id="askClient" onclick="askForClientList()" style="visibility:hidden">See who's online</button>
+	</div>
+	<div class="body" id="client_list" style="visibility:hidden">
+		<p id="client_list_section_header">Here's who is online</p>
+	</div>
+	<div id="msg_request" style="visibility:hidden">
+		<p id="msg_request_note"></p>
+		<button onclick="acceptMsgReq()">Accept</button>
+		<button onclick="denyMsgReq()">Deny</button>
+	</div>
+	<div id="msg_request_accepted" style="visibility:hidden">
+		<p id="resultOfMsgRequest">Your request was accepted!</p>
+	</div>
+	<div id="msg_request_denied" style="visibility:hidden">
+		<p id="resultOfMsgRequest">Your request was denied!</p>
+	</div>
+</div>
+<div id="msgColumn" style="width:48%; float:right; visibility:hidden; border:3px solid red">
+	<div class="body" id="top">
+		<h1>Messaging</h1>
+		<form id="messageFormContainer">
+			<input type="text" id="messageForm"></input>
+		</form>
+		<button onclick="submitMsg()" style="float:left; width:50%">Submit</button>
+		<button onclick="endConvo(true)" style="float:right; width:50%">End conversation</button>
+	</div>
+</div>
+<div id="msgSpace" style="width:48%; float:right; visibility:hidden">
+</div>
+<p id="endMsg" style="float: right; width: 48%; visibility:hidden">The converstation was ended!</p>
+<script>
+			/*
+			CONVENTION
+			ID must be in all transmissions
+			ID must be located in data
+			Consequently, all transmissions must have a data field
+			*/
+			
+			var connection;
+			var connID = "null";
+			var requested = "null";
+			var connName;
+			
+			function show(view){
+				view.style.visibility = "visible";
+				view.style.display = "block";
+			}
+			
+			function hide(view){
+				view.style.visibility = "hidden";
+				view.style.display = "none";
+			}
+			
+			function textBox(view){
+				view.style.width = "55%";
+				view.style.border = "3px solid red"; 
+				view.style.borderRadius = "5px"; 
+				view.style.background = "#FFFFFF"; 
+				view.style.fontColor = "#000000"; 
+				view.style.padding = "10px";
+				return view;
+			}
+			
+			$(function () {
+				// if user is running mozilla then use it's built-in WebSocket
+				window.WebSocket = window.WebSocket || window.MozWebSocket;
+
+				connection = new WebSocket('ws://192.168.0.107:8000');
+			  
+				console.log(typeof connection);
+
+				connection.onopen = function () {
+				// connection is opened and ready to use
+				};
+
+				connection.onerror = function (error) {
+				// an error occurred when sending/receiving data
+				};
+			  
+				connection.onmessage = function(e){
+					var server_message = e.data;
+					console.log(server_message);
+					var message = JSON.parse(e.data);
+					console.log(message);
+					if (message.data.dest_client_ID == connID || connID == "null"){
+						console.log("this should work");
+						if (message.type == "assignment"){
+							document.getElementById("id").innerHTML = message.data.msg;
+							show(document.getElementById("askClient"));
+							connID = message.data.ID;
+						} else if (message.type == "new client"){
+							document.getElementById("others").innerHTML = "Newest Client: " + message.data.identifier;
+						} else if (message.type == "client list"){
+							var space = document.getElementById("client_list");
+							show(space);
+							var el = document.createElement("Div");
+							var el_text = document.createElement("P");
+							el_text.appendChild(document.createTextNode(message.data.identifier));
+							var el_btn = document.createElement("Button");
+							el_btn.appendChild(document.createTextNode("Contact"));
+							el_btn.onclick = function(){
+								connection.send(JSON.stringify({
+									type: "client msg request",
+									data: {
+										ID: connID,
+										name: connName,
+										dest_client_ID: message.data.list_client_ID
+									}
+								}));
+							};
+							el.appendChild(el_text);
+							el.appendChild(el_btn);
+							space.appendChild(el);
+						} else if (message.type == "message request"){
+							console.log("message request received from " + message.data.from_client_ID);
+							requested = message.data.from_client_ID;
+							show(document.getElementById("msg_request"));
+							hide(document.getElementById("askClient"));
+							hide(document.getElementById("client_list"));
+							document.getElementById("msg_request_note").innerHTML = "Message request from " + message.data.from_client_name;
+						} else if (message.type == "initiate message client"){
+							show(document.getElementById("msg_request_accepted"));
+							hide(document.getElementById("client_list"));
+							setTimeout(function(){
+								show(document.getElementById("msgColumn"));
+								show(document.getElementById("msgSpace"));
+								hide(document.getElementById("msg_request_accepted"));
+								console.log("message client initiated");
+								if (requested == "null"){
+									requested = message.data.from_client_ID;
+								}
+							}, 2000);
+						} else if (message.type == "denied message request"){
+							console.log("message request denied");
+							show(document.getElementById("msg_request_denied"));
+							setTimeout(function(){
+								hide(document.getElementById("msg_request_denied"));
+								show(document.getElementById("askClient"));
+								show(document.getElementById("client_list"))
+							}, 3000);
+						} else if (message.type == "message from"){
+							var msgDisplaySpace = document.getElementById("msgSpace");
+							var el_text = document.createElement("P");
+							el_text.appendChild(document.createTextNode(message.data.msg));
+							el_text = textBox(el_text);
+							el_text.style.float = "left"; 
+							el_text.style.background = "#FFFFFF";
+							msgDisplaySpace.appendChild(el_text);
+						} else if (message.type == "convo ended"){
+							endConvo(false);
+						} else if (message.type == "conn error"){
+							alert("The client you are trying to connect wiht is offline. If you are messaging them, end conversation. ");
+						}
+					}
+					console.log("the ID is currently " + connID);
+				}
+			});
+			function submitName(){
+				console.log(connection);
+				var input = document.getElementById('nameForm').value;
+				connName = input;
+				document.getElementById("nameFormContainer").reset(); 
+				console.log(input);
+				connection.send(JSON.stringify({
+					type:"name assignment",
+					data: {
+						ID: "null",
+						name: input	
+					}
+				}));
+				console.log("sent");
+			}
+			function askForClientList(){
+				document.getElementById("client_list").innerHTML = "";
+				connection.send(JSON.stringify({
+					type:"client list request",
+					data: {
+						ID: connID
+					}
+				}));
+				console.log("Sending request for client list with id " + connID);
+			}
+			function acceptMsgReq(){
+				connection.send(JSON.stringify({
+					type:"accepting message request",
+					data: {
+						ID: connID,
+						dest_client_ID: requested
+					}
+				}));
+				hide(document.getElementById("msg_request"));
+				console.log("Sending request for client list with id " + connID);
+			}
+			function denyMsgReq(){
+				connection.send(JSON.stringify({
+					type:"denying message request",
+					data: {
+						ID: connID,
+						dest_client_ID: requested
+					}
+				}));
+				show(document.getElementById("askClient"));
+				show(document.getElementById("client_list"));
+				show(document.getElementById("client_list"));
+				hide(document.getElementById("msg_request"));
+				console.log("Sending request for client list with id " + connID);
+			}
+			function submitMsg(){
+				var input = document.getElementById('messageForm').value;
+				document.getElementById("messageFormContainer").reset(); 
+				connection.send(JSON.stringify({
+					type:"message for",
+					data: {
+						ID: connID,
+						dest_client_ID: requested,
+						msg: input
+					}
+				}));
+				var msgDisplaySpace = document.getElementById("msgSpace");
+				var el_text = document.createElement("P");
+				el_text.appendChild(document.createTextNode(input));
+				el_text = textBox(el_text);
+				el_text.style.float = "right";
+				el_text.style.background = "#FFFFFF";
+				msgDisplaySpace.appendChild(el_text);
+				console.log("Sending message to id " + requested);
+			}
+			function endConvo(send_req){
+				document.getElementById("msgSpace").innerHTML = "";
+				show(document.getElementById("endMsg"));
+				hide(document.getElementById("msgSpace"));
+				if (send_req){
+					connection.send(JSON.stringify({
+						type:"convo ended",
+						data: {
+							ID: connID,
+							dest_client_ID: requested,
+						}
+					}));
+				}
+				setTimeout(function(){
+					show(document.getElementById("askClient"));
+					show(document.getElementById("client_list"));
+					hide(document.getElementById("endMsg"));
+					hide(document.getElementById("msgColumn"));
+					askForClientList();
+				}, 3000);
+			}
+</script>
+<script>
+    document.getElementById('nameForm').addEventListener('keypress', function(event) {
+        if (event.keyCode == 13) {
+            event.preventDefault();
+        }
+    });
+	document.getElementById('messageForm').addEventListener('keypress', function(event) {
+        if (event.keyCode == 13) {
+            event.preventDefault();
+        }
+    });
+</script>
+	
+</body>
+</html> 
+
+
+
+
+
+
+
+
+
+
+
